@@ -3,7 +3,7 @@ name: AI Test Generator
 on:
   push:
     branches:
-      - main
+      - *
     paths:
       - '**/*.php'    # Only trigger if PHP files are modified
 
