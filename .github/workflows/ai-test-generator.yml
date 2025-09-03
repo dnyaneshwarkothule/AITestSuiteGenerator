@@ -3,7 +3,9 @@ name: AI Test Generator
 on:
   push:
     branches:
-      - main    # you can change this to develop, feature/*, etc.
+      - main
+    paths:
+      - '**/*.php'    # Only trigger if PHP files are modified
 
 jobs:
   generate-tests:
@@ -12,29 +14,55 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history for diff
 
-      - name: Get commit diff
+      - name: Get commit diff and changed PHP files
+        id: diff
         run: |
-          git fetch origin main
-          git diff ${{ github.event.before }} ${{ github.sha }} > commit.diff
+          BEFORE=${{ github.event.before }}
+          AFTER=${{ github.sha }}
 
-      - name: Send diff to AI Agent
-        run: |
-          curl -X POST http://0.0.0.0:8000/index.php \
-            -H "Content-Type: application/json" \
-            --data-binary @commit.diff \
-            -o ai-test-output.json
+          echo "Before SHA: $BEFORE"
+          echo "After SHA:  $AFTER"
 
-      - name: Extract and save generated test
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "Detected first commit → diff from empty tree"
+            git diff --name-only --diff-filter=ACMR $(git hash-object -t tree /dev/null) $AFTER -- '*.php' > changed_files.txt
+            git diff --no-prefix $(git hash-object -t tree /dev/null) $AFTER > commit.diff
+          else
+            echo "Generating diff between $BEFORE and $AFTER"
+            git diff --name-only --diff-filter=ACMR $BEFORE $AFTER -- '*.php' > changed_files.txt
+            git diff $BEFORE $AFTER > commit.diff
+          fi
+
+          echo "Changed PHP files:"
+          cat changed_files.txt
+
+      - name: Generate tests for each changed PHP file
         run: |
           mkdir -p tests/Unit/AI
-          jq -r '.test_file_content' ai-test-output.json > tests/Unit/AI/GeneratedTest.php
+          while read FILE_NAME; do
+            if [ -z "$FILE_NAME" ]; then
+              continue
+            fi
+
+            BASE_NAME=$(basename "$FILE_NAME" .php)
+            echo "Generating test for $FILE_NAME → ${BASE_NAME}Test.php"
+
+            curl -s -X POST http://localhost:8000/index.php \
+              -H "Content-Type: application/json" \
+              --data-binary @commit.diff \
+              -o ai-test-output.json
+
+            jq -r '.test_file_content' ai-test-output.json > tests/Unit/AI/${BASE_NAME}Test.php
+          done < changed_files.txt
 
       - name: Commit and push AI tests
         run: |
           git config user.name "AI Test Bot"
-          git config user.email "ai-bot@example.com"
+          git config user.email "dnyaneshwarkothule@gmail.com"
           git checkout -b ai-tests-${{ github.sha }}
-          git add tests/Unit/AI/GeneratedTest.php
+          git add tests/Unit/AI/*.php
           git commit -m "AI-generated tests for commit ${{ github.sha }}" || echo "No changes to commit"
           git push origin ai-tests-${{ github.sha }}
