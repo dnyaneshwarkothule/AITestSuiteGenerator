@@ -3,7 +3,7 @@ name: AI Test Generator
 on:
   push:
     branches:
-      - *
+      - main
     paths:
       - '**/*.php'    # Only trigger if PHP files are modified
 
@@ -15,25 +15,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # need full history for diff
+          fetch-depth: 2   # we only need the last 2 commits
 
       - name: Get commit diff and changed PHP files
         id: diff
         run: |
-          BEFORE=${{ github.event.before }}
-          AFTER=${{ github.sha }}
-
-          echo "Before SHA: $BEFORE"
-          echo "After SHA:  $AFTER"
-
-          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+          if [ "$(git rev-parse --verify HEAD^ 2>/dev/null || echo '')" = "" ]; then
             echo "Detected first commit → diff from empty tree"
-            git diff --name-only --diff-filter=ACMR $(git hash-object -t tree /dev/null) $AFTER -- '*.php' > changed_files.txt
-            git diff --no-prefix $(git hash-object -t tree /dev/null) $AFTER > commit.diff
+            git diff --name-only --diff-filter=ACMR $(git hash-object -t tree /dev/null) HEAD -- '*.php' > changed_files.txt
+            git diff --no-prefix $(git hash-object -t tree /dev/null) HEAD > commit.diff
           else
-            echo "Generating diff between $BEFORE and $AFTER"
-            git diff --name-only --diff-filter=ACMR $BEFORE $AFTER -- '*.php' > changed_files.txt
-            git diff $BEFORE $AFTER > commit.diff
+            echo "Diffing against HEAD^"
+            git diff --name-only --diff-filter=ACMR HEAD^ HEAD -- '*.php' > changed_files.txt
+            git diff HEAD^ HEAD > commit.diff
           fi
 
           echo "Changed PHP files:"
@@ -46,7 +40,6 @@ jobs:
             if [ -z "$FILE_NAME" ]; then
               continue
             fi
-
             BASE_NAME=$(basename "$FILE_NAME" .php)
             echo "Generating test for $FILE_NAME → ${BASE_NAME}Test.php"
 
