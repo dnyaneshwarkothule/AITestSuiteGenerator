@@ -1,0 +1,40 @@
+name: AI Test Generator
+
+on:
+  push:
+    branches:
+      - main    # you can change this to develop, feature/*, etc.
+
+jobs:
+  generate-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get commit diff
+        run: |
+          git fetch origin main
+          git diff ${{ github.event.before }} ${{ github.sha }} > commit.diff
+
+      - name: Send diff to AI Agent
+        run: |
+          curl -X POST http://0.0.0.0:8000/index.php \
+            -H "Content-Type: application/json" \
+            --data-binary @commit.diff \
+            -o ai-test-output.json
+
+      - name: Extract and save generated test
+        run: |
+          mkdir -p tests/Unit/AI
+          jq -r '.test_file_content' ai-test-output.json > tests/Unit/AI/GeneratedTest.php
+
+      - name: Commit and push AI tests
+        run: |
+          git config user.name "AI Test Bot"
+          git config user.email "ai-bot@example.com"
+          git checkout -b ai-tests-${{ github.sha }}
+          git add tests/Unit/AI/GeneratedTest.php
+          git commit -m "AI-generated tests for commit ${{ github.sha }}" || echo "No changes to commit"
+          git push origin ai-tests-${{ github.sha }}
